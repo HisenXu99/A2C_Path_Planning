@@ -1,0 +1,61 @@
+<?xml version="1.0"?>
+<!-- This is for loading a box with different tags on each side. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <link name="tag_link">
+    <inertial>
+      <origin xyz="0 0 0" />
+      <mass value="0.001" />
+      <inertia  ixx="1.0" ixy="0.0"  ixz="0.0"  iyy="1.0"  iyz="0.0"  izz="1.0" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+        <!-- <mesh filename="package://multi_jackal_description/meshes/apriltags/apriltags$(arg config_id).dae" /> -->
+        <box size="0.8 0.8 0.8" />
+        <!-- <cylinder>
+            <radius>0.5</radius>
+            <length>1</length>
+        </cylinder> -->
+      </geometry>
+    </visual>
+    <collision>
+      <!-- <origin xyz="0 0 0"/> -->
+      <geometry>
+        <box size="0.8 0.8 0.8" />
+        <!-- <cylinder>
+            <radius>0.5</radius>
+            <length>1</length>
+        </cylinder> -->
+      </geometry>
+    </collision>
+  </link>
+  
+  <joint name="ar_tag_joint" type="fixed">
+    <parent link="front_mount" />
+    <child link="tag_link" />
+    <origin xyz="0.0 0.0 0.4" rpy="0 0 0" />
+    <!--<axis xyz="0 1 0" />-->
+  </joint>
+  
+
+  <link name="little_box">
+    <visual>
+      <origin xyz="0 0 0"/>
+      <geometry>
+           <cylinder length="0.01" radius="0.2"/>
+      </geometry>
+    </visual>
+  </link>
+  <joint name="box_tag_joint" type="fixed">
+    <parent link="tag_link" />
+    <child link="little_box" />
+    <origin xyz="0.0 0.0 0.4" rpy="0 0 0" />
+  </joint>
+
+
+
+  <gazebo reference="base_link">
+    <turnGravityOff>false</turnGravityOff>
+  </gazebo>
+ 
+</robot>
