@@ -199,6 +199,8 @@ class A2C:
             
             self.TD_error =self.r  + self.m   #[32]
 
+            td=tf.placeholder(tf.float32,[None], 'r')  
+
             self.loss =tf.reduce_mean(tf.multiply(self.w_is,tf.square(self.TD_error)))
             self.train_Critic = tf.train.AdamOptimizer(self.Lr_C).minimize(self.loss)
             log_prob=tf.log(tf.reduce_sum(tf.multiply(self.output_actor, self.a), reduction_indices=1))   #[32]
