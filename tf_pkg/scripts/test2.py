@@ -7,9 +7,7 @@ import time
 import cv2
 import os
 import math
-
 from gazebo_env_D3QN_PER_image_add_sensor_empty_world_30m import envmodel
-
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'  # 默认显卡0
 
@@ -20,7 +18,6 @@ action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
                3: [1.0, 0.5], 4: [1.0, 1.0], 5: [0.5, -1.0],
                6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
                9: [0.0, 0.0], 10: [0.0, 1.0]}
-
 
 class A2C:
     def __init__(self):
@@ -37,8 +34,8 @@ class A2C:
         self.Num_training = 50000
         # ------------------------------
         self.Num_test = 0
-        self.Lr_A = 0.001
-        self.Lr_C = 0.01
+        self.Lr_A = 0.0001
+        self.Lr_C = 0.0002
         self.Gamma = 0.99
         self.GAMMA = 0.9
         self.Final_epsilon = 0.1
@@ -62,7 +59,7 @@ class A2C:
         # ------------------------------
         self.Num_replay_memory = 5000
         # ------------------------------
-        self.Num_batch = 32
+        self.Num_batch = 1
         self.Replay_memory = []
 
         # Parameters for PER
@@ -101,47 +98,15 @@ class A2C:
         # ------------------------------
 
         # Initialize Network
-        self.output_actor, self.output_critic = self.network()
-        self.train_Actor, self.train_Critic, self.loss_train, self.w_is, self.TD_error = self.loss_and_train()
+        self.output_critic = self.network()
+        # self.train_Actor, self.train_Critic, self.loss_train, self.w_is, self.TD_error = self.loss_and_train()
+        # self.output_critic = self.network()
+        self.loss_and_train()
         self.sess, self.saver = self.init_sess()
         pass
 
-    def init_sess(self):
-        # Initialize variables
-        config = tf.ConfigProto()
-        config.gpu_options.per_process_gpu_memory_fraction = 0.6  # 程序最多只能占用指定gpu50%的显存
-        sess = tf.InteractiveSession(config=config)
-        # ------------------------------
-        os.makedirs('saved_networks/' +
-                    '10_D3QN_PER_image_add_sensor_empty_world_30m' + '_' + self.date_time)
-        # ------------------------------
-
-        init = tf.global_variables_initializer()
-        sess.run(init)
-
-        writer=tf.summary.FileWriter('log_A2C', tf.get_default_graph())
-
-        writer.close()
-
-        # Load the file if the saved file exists
-        saver = tf.train.Saver()
-        # check_save = input('Load Model? (1=yes/2=no): ')
-
-        # if check_save == 1:
-        #     # Restore variables from disk.
-        #     saver.restore(sess, self.load_path + "/model.ckpt")
-        #     print("Model restored.")
-
-        #     check_train = input(
-        #         'Inference or Training? (1=Inference / 2=Training): ')
-        #     if check_train == 1:
-        #         self.Num_start_training = 0
-        #         self.Num_training = 0
-
-        return sess, saver
-
     def weight_variable(self, shape):
-        return tf.Variable(self.xavier_initializer(shape))
+            return tf.Variable(self.xavier_initializer(shape))
 
     def bias_variable(self, shape):  # 初始化偏置项
         return tf.Variable(self.xavier_initializer(shape))
@@ -161,48 +126,37 @@ class A2C:
     def network(self):
         tf.reset_default_graph()
         # Input------image
-        self.x_image = tf.placeholder(
-            tf.float32, shape=[None, self.img_size, self.img_size, self.Num_stackFrame],name="image")
+        self.x_image = tf.placeholder(tf.float32, shape=[None, self.img_size, self.img_size, self.Num_stackFrame],name="image")
         self.x_normalize = (self.x_image - (255.0/2)) / (255.0/2)  # 归一化处理
-
+        
         # Input------sensor
-        self.x_sensor = tf.placeholder(
-            tf.float32, shape=[None, self.Num_stackFrame, self.Num_dataSize])
+        self.x_sensor = tf.placeholder(tf.float32, shape=[None, self.Num_stackFrame, self.Num_dataSize],name="state")
         self.x_unstack = tf.unstack(self.x_sensor, axis=1)
 
         with tf.variable_scope('network'):
             # Convolution variables
             with tf.variable_scope('CNN'):
-                w_conv1 = self.weight_variable(
-                    self.first_conv)  # w_conv1 = ([8,8,4,32])
-                b_conv1 = self.bias_variable(
-                    [self.first_conv[3]])  # b_conv1 = ([32])
+                w_conv1 = self.weight_variable(self.first_conv)  # w_conv1 = ([8,8,4,32])
+                b_conv1 = self.bias_variable([self.first_conv[3]])  # b_conv1 = ([32])
 
                 # second_conv=[4,4,32,64]
-                w_conv2 = self.weight_variable(
-                    self.second_conv)  # w_conv2 = ([4,4,32,64])
-                b_conv2 = self.bias_variable(
-                    [self.second_conv[3]])  # b_conv2 = ([64])
+                w_conv2 = self.weight_variable(self.second_conv)  # w_conv2 = ([4,4,32,64])
+                b_conv2 = self.bias_variable([self.second_conv[3]])  # b_conv2 = ([64])
 
                 # third_conv=[3,3,64,64]
-                w_conv3 = self.weight_variable(
-                    self.third_conv)  # w_conv3 = ([3,3,64,64])
-                b_conv3 = self.bias_variable(
-                    [self.third_conv[3]])  # b_conv3 = ([64])
+                w_conv3 = self.weight_variable(self.third_conv)  # w_conv3 = ([3,3,64,64])
+                b_conv3 = self.bias_variable([self.third_conv[3]])  # b_conv3 = ([64])
 
-                h_conv1 = tf.nn.relu(self.conv2d(
-                    self.x_normalize, w_conv1, 4) + b_conv1)
+                h_conv1 = tf.nn.relu(self.conv2d(self.x_normalize, w_conv1, 4) + b_conv1)
                 h_conv2 = tf.nn.relu(self.conv2d(h_conv1, w_conv2, 2) + b_conv2)
                 h_conv3 = tf.nn.relu(self.conv2d(h_conv2, w_conv3, 1) + b_conv3)
-                h_pool3_flat = tf.reshape(
-                    h_conv3, [-1, 10 * 10 * 64])  # 将tensor打平到vector中
+                h_pool3_flat = tf.reshape(h_conv3, [-1, 10 * 10 * 64])  # 将tensor打平到vector中
 
             with tf.variable_scope('LSTM'):
                 # LSTM cell
                 #TODO:看看LSTM的结构
                 cell = tf.contrib.rnn.BasicLSTMCell(num_units=self.Num_cellState)
-                rnn_out, rnn_state = tf.nn.static_rnn(
-                    inputs=self.x_unstack, cell=cell, dtype=tf.float32)
+                rnn_out, rnn_state = tf.nn.static_rnn(inputs=self.x_unstack, cell=cell, dtype=tf.float32)
                 rnn_out = rnn_out[-1]
 
             h_concat = tf.concat([h_pool3_flat, rnn_out], axis=1)
@@ -219,77 +173,67 @@ class A2C:
                     [self.second_dense_state[1]])  # b_fc2_1 = ([1])
                 Critic_output1 = tf.nn.relu(tf.matmul(h_concat, w_Critic_1)+b_Critic_1)
                 Critic_output2 = tf.matmul(Critic_output1, w_Critic_2)+b_Critic_2
-                
-            with tf.variable_scope('Actor'):
-                # Actor
-                w_Actor_1 = self.weight_variable(
-                    self.first_dense)  # w_fc1_1 = ([6400,512])
-                b_Actor_1 = self.bias_variable(
-                    [self.first_dense[1]])  # b_fc1_1 = ([512])
-                w_Actor_2 = self.weight_variable(
-                    self.second_dense_action)  # w_fc2_1 = ([512，11])
-                b_Actor_2 = self.bias_variable(
-                    [self.second_dense_action[1]])  # b_fc2_1 = ([11])
-                Actor_output1 =tf.nn.relu(tf.matmul(h_concat, w_Actor_1)+b_Actor_1)
-                Actor_output2 = tf.nn.softmax(tf.matmul(Actor_output1, w_Actor_2)+b_Actor_2)
 
-        return Actor_output2, Critic_output2
+            # with tf.variable_scope('Actor'):
+            #     # Actor
+            #     w_Actor_1 = self.weight_variable(
+            #         self.first_dense)  # w_fc1_1 = ([6400,512])
+            #     b_Actor_1 = self.bias_variable(
+            #         [self.first_dense[1]])  # b_fc1_1 = ([512])
+            #     w_Actor_2 = self.weight_variable(
+            #         self.second_dense_action)  # w_fc2_1 = ([512，11])
+            #     b_Actor_2 = self.bias_variable(
+            #         [self.second_dense_action[1]])  # b_fc2_1 = ([11])
+            #     Actor_output1 =tf.nn.relu(tf.matmul(h_concat, w_Actor_1)+b_Actor_1)
+            #     Actor_output2 = tf.nn.softmax(tf.matmul(Actor_output1, w_Actor_2)+b_Actor_2)
 
+        return  Critic_output2
 
     def loss_and_train(self):
-        #TODO:看看这里的output_critic_的形状，传入32个样本的minibach的时候
         with tf.variable_scope('Train'):
-            
-            # with tf.variable_scope('Train_Critic'):
-                # self.x_image_next=tf.placeholder(tf.float32, shape=[None, self.img_size, self.img_size, self.Num_stackFrame],name="image")
-                # self.x_sensor_next = tf.placeholder(tf.float32, shape=[None, self.Num_stackFrame, self.Num_dataSize])
-                # Q_batch = self.output_critic.eval(feed_dict = {self.x_image: self.x_image_next, self.x_sensor: self.x_sensor_next})
-                # Q_target=[]
-                # for i in range(len(minibatch)):
-                #     if terminal_batch[i] == True:
-                #         Q_target.append([reward_batch[i]])
-                #     else:
-                #         Q_target.append([reward_batch[i] + self.Gamma * np.max(Q_batch)])
-                # Q=np.array(Q_target).reshape((-1,1))
-
-                
             self.output_critic_ = tf.placeholder(tf.float32,[None], "v_next")     #[32]
             self.r = tf.placeholder(tf.float32,[None], 'r')                      #[n]
-            # r=tf.reshape(self.r,[-1,1])
-            #????????????????
             self.a = tf.placeholder(tf.float32, [None, self.Num_action], "action")
-            # a=tf.reshape(self.a,[-1,1])
-            ################################################## PER ############################################################
-            w_is = tf.placeholder(tf.float32, shape=[None])
-            self.output_critic_32=tf.reduce_sum(self.output_critic,reduction_indices=1)
-            self.m=self.GAMMA *  self.output_critic_32 - self.output_critic_ 
-            td_error =self.r  + self.GAMMA *  self.output_critic_32 - self.output_critic_   #[32]
+            self.w_is = tf.placeholder(tf.float32, shape=[None])
+            self.m=self.GAMMA *  tf.reduce_sum(self.output_critic,reduction_indices=1) - self.output_critic_ 
+            
+            self.TD_error =self.r  + self.m   #[32]
 
-            #TODO:照着别人的程序修改
+            self.loss =tf.reduce_mean(tf.square(self.TD_error))
+            self.train_Critic = tf.train.AdamOptimizer(self.Lr_C).minimize(self.loss)
+            # log_prob=tf.log(tf.reduce_sum(tf.multiply(self.output_actor, self.a), reduction_indices=1))   #[32]
+            # self.exp_v = tf.reduce_mean(tf.multiply(log_prob, self.TD_error))   #[1]
+            # self.train_Actor = tf.train.AdamOptimizer(self.Lr_A).minimize(-self.exp_v)
 
-            # with tf.variable_scope('Train_Critic'):
-                # Loss = tf.reduce_mean(tf.square(y_prediction - y_target))
-            loss = tf.square(td_error)    # TD_error = (r+gamma*V_next) - V_eval
-            Loss = tf.reduce_sum(tf.multiply(w_is, loss))
-            #TODO:最后看看需不需要加入重要性采样,把这里critic中梯度下降的ｌｏｓｓ改为ＬＯＳＳ则为使用重要性采样
-            ###################################################################################################################
-            log_prob=tf.log(tf.reduce_sum(tf.multiply(self.output_actor, self.a), reduction_indices=1))   #[32]
-                
-                # for ax in range(self.a.shape[0].value):
-                #     #TODO:检查log_porb是不是一个一维tensor
-                #     #NOTE:self.a是一个二维矩阵
-                #     log_prob.append(tf.log(self.output_actor[ax,tf.argmax(self.a[ax,:],0)]))
-                #     tf.reshape(log_prob,[-1,1])
+    def init_sess(self):
+        # Initialize variables
+        config = tf.ConfigProto()
+        config.gpu_options.per_process_gpu_memory_fraction = 0.6  # 程序最多只能占用指定gpu50%的显存  
 
-                # log_prob = tf.log(self.output_actor[:, self.a])
-                #TODO:检查两个一维矩阵相乘
-            self.exp_v = tf.reduce_mean(log_prob * td_error)   #[32]
-            train_Actor = tf.train.AdamOptimizer(self.Lr_A).minimize(-self.exp_v)
-            train_Critic = tf.train.AdamOptimizer(self.Lr_C).minimize(Loss)
+        sess = tf.InteractiveSession(config=config)
+        # ------------------------------
+        os.makedirs('saved_networks/' +
+                    '10_D3QN_PER_image_add_sensor_empty_world_30m' + '_' + self.date_time)
+        # ------------------------------
 
-        return train_Actor, train_Critic, Loss, w_is, td_error
+        init = tf.global_variables_initializer()
+        sess.run(init)
 
-        pass
+        # Load the file if the saved file exists
+        saver = tf.train.Saver()
+        # check_save = input('Load Model? (1=yes/2=no): ')
+
+        # if check_save == 1:
+        #     # Restore variables from disk.
+        #     saver.restore(sess, self.load_path + "/model.ckpt")
+        #     print("Model restored.")
+
+        #     check_train = input('Inference or Training? (1=Inference / 2=Training): ')
+        #     if check_train == 1:
+        #         self.Num_start_training = 0
+        #         self.Num_training = 0
+
+        return sess, saver
 
     # Initialize input
     def input_initialization(self, env_info):
@@ -373,16 +317,19 @@ class A2C:
             action = np.zeros([self.Num_action])
             action[random.randint(0, self.Num_action - 1)] = 1.0
         elif progress == "Training":
-            if random.random() < Epsilon:
-                action = np.zeros([self.Num_action])
-                action[random.randint(0, self.Num_action - 1)] = 1
-            else:
-                # 否则，动作是具有最大Q值的动作
-                action = np.zeros([self.Num_action])
-                action_actor = self.output_actor.eval(
-                    feed_dict={self.x_image: [observation_stack], self.x_sensor: [state_stack]})
-                p = action_actor.ravel()
-                action[np.argmax(p)] = 1
+            # if random.random() < Epsilon:
+            #     action = np.zeros([self.Num_action])
+            #     action[random.randint(0, self.Num_action - 1)] = 1
+            # else:
+            #     # 否则，动作是具有最大Q值的动作
+            #     action = np.zeros([self.Num_action])
+            #     action_actor = self.output_actor.eval(
+            #         feed_dict={self.x_image: [observation_stack], self.x_sensor: [state_stack]})
+            #     p = action_actor.ravel()
+            #     action[np.argmax(p)] = 1
+            #观察的情况下，随机选择一个action
+            action = np.zeros([self.Num_action])
+            action[random.randint(0, self.Num_action - 1)] = 1.0
         else:
             # 动作是具有最大Q值的动作
             action_actor = self.output_actor.eval(
@@ -399,75 +346,30 @@ class A2C:
         observation_next_batch = [batch[4] for batch in minibatch]
         state_next_batch       = [batch[5] for batch in minibatch]
         terminal_batch         = [batch[6] for batch in minibatch]
-        # print("observation_batch:",observation_batch,type(observation_batch))
-        # print("state_batch:",state_batch,type(state_batch))
-        # print("action_batch:",action_batch,type(action_batch))
-        # print("reward_batch:",reward_batch,type(reward_batch))
-        # print("observation_next_batch:",observation_next_batch,type(observation_next_batch))
-        # print("state_next_batch:",state_next_batch,type(state_next_batch))
-        # print("terminal_batch:",terminal_batch,type(terminal_batch))
 
-
-        Q_batch = self.output_critic.eval(
+        V_batch = self.output_critic.eval(
                 feed_dict = {self.x_image: observation_next_batch, self.x_sensor: state_next_batch})
 
+        print(V_batch)
 
-        Q_target=[]
-
+        V_target=[]
         for i in range(len(minibatch)):
             if terminal_batch[i] == True:
-                Q_target.append(reward_batch[i])
+                V_target.append(reward_batch[i])
             else:
-                Q_target.append(reward_batch[i] + self.Gamma * Q_batch[i,0])
+                V_target.append(reward_batch[i] + self.Gamma * V_batch[i,0])
 
-        print(Q_target)
-        print(reward_batch[2])
-        print(Q_batch[2,0])
-
+        TD_error_batch,_,loss= self.sess.run([self.TD_error,self.train_Critic,self.loss],feed_dict ={self.x_image: observation_batch,
+                                                                                                                                                                self.x_sensor:state_batch,
+                                                                                                                                                                self.r: reward_batch,
+                                                                                                                                                                self.output_critic_: V_target,
+                                                                                                                                                                self.a:action_batch,
+                                                                                                                                                                self.w_is:w_batch
+                                                                                                                                                               })
         
-
-        # v_ = self.sess.run(self.output_critic, feed_dict = {self.action_target: action_batch,
-        #                                                                                                                 self.y_target: Q_target,
-        #                                                                                                                 self.x_image: observation_batch,
-        #                                                                                                                 self.x_sensor:state_batch,
-        #                                                                                                                 self.w_is: w_batch,
-        #                                                                                                                 self.output_critic_: [Q_target]})
-
-        # print(reward_batch)
-        # # print(Q)
-        # # print(a)
-        # print(w_batch)
-             
-
-        #NOTE：先计算TD_error，然后同时训练Actor和Critic网络
-        # TD_error_batch, _ ,exp_v ,_= self.sess.run([self.TD_error, self.train_Critic,self.exp_v,self.train_Actor],feed_dict ={self.x_image: observation_batch,
-        #                                                                                                                                                                 self.x_sensor:state_batch,
-        #                                                                                                                                                                 self.r: reward_batch,
-        #                                                                                                                                                                 self.output_critic_: Q,
-        #                                                                                                                                                                 self.a:a,
-        #                                                                                                                                                                 self.w_is: w_batch})
-        # TD_error_batch,l,m,= self.sess.run([self.TD_error,self.output_critic_32,self.m, self.train_Critic],feed_dict ={self.x_image: observation_batch,
-        #                                                                                                                                                                 self.x_sensor:state_batch,
-        #                                                                                                                                                                 self.r: reward_batch,
-        #                                                                                                                                                                 self.output_critic_: Q_target,
-        #                                                                                                                                                                 self.a:action_batch,
-        #                                                                                                                                                                 self.w_is: w_batch})
-        TD_error_batch,m,_= self.sess.run([self.TD_error,self.m,self.train_Critic],feed_dict ={self.x_image: observation_batch,
-                                                                                                                                                                        self.x_sensor:state_batch,
-                                                                                                                                                                        self.r: reward_batch,
-                                                                                                                                                                        self.output_critic_: Q_target,
-                                                                                                                                                                        self.a:action_batch,
-                                                                                                                                                                        self.w_is: w_batch})
-                                                                                                                                                                        
-
-        # Update TD_list
         print(TD_error_batch)
-        # print(l)
-        print(m)
-        # print(abs(TD_error_batch[1]))
-        # print(pow((abs(TD_error_batch[1]) + self.eps), self.alpha))
-
-
+        print(loss)
+        # print(xp)
         for i_batch in range(len(batch_index)):
             self.TD_list[batch_index[i_batch]] = pow((abs(TD_error_batch[i_batch]) + self.eps), self.alpha)
         
@@ -493,9 +395,8 @@ class A2C:
 
             # ################################################## PER ############################################################
             V_batch = self.output_critic.eval(feed_dict={self.x_image: [next_observation], 
-                                                                                                        self.x_sensor: [next_state],
-                                                                                                        self.r: [reward],})
-
+                                                                                                        self.x_sensor: [next_state]})
+            # print(V_batch)
             if terminal == True:
                 V_next = [reward]
             else:
@@ -519,7 +420,7 @@ class A2C:
                                                                                                                                     self.x_sensor: [state],
                                                                                                                                     self.output_critic_:V_next})
 
-            # print(TD_error)
+            print(TD_error)
 
             #TODO：看看这个TD_error是0维还是1维
 
@@ -560,6 +461,7 @@ class A2C:
         save_path = self.saver.save(
             self.sess, 'saved_networks/' + '10_D3QN_PER_image_add_sensor_empty_world_30m' + '_' + self.date_time + "/model.ckpt")
         # ------------------------------
+        pass
 
     def main(self):
 
@@ -576,19 +478,16 @@ class A2C:
                 np.random.random_sample((2, 2)) - self.d
             if math.sqrt((randposition[0][0]-randposition[1][0])**2+(randposition[0][1]-randposition[1][1])**2) > 20.0:
                 break
-
         env.reset_env(start=[randposition[0][0], randposition[0][1]], goal=[randposition[1][0], randposition[1][1]])
         env_info = env.get_env()
         # env.info为4维，第1维为相机消息，第2维为agent robot的self state，第3维为terminal，第4维为reward
         self.observation_stack, self.observation_set, self.state_stack, self.state_set = self.input_initialization(env_info)
-
         step_for_newenv = 0
 
         # Training & Testing
         while True:
             # Get Progress, train mode 获取当前的进度和train_mode的值
-            self.progress, self.Epsilon = self.get_progress(
-                self.step, self.Epsilon)
+            self.progress, self.Epsilon = self.get_progress(self.step, self.Epsilon)
 
             # Select Actions 根据进度选取动作
             action = self.select_action(self.progress, self.sess, self.observation_stack, self.state_stack, self.Epsilon)
@@ -613,6 +512,7 @@ class A2C:
             if self.progress == 'Training':
                 # Train!!
                 minibatch, w_batch, batch_index = self.prioritized_minibatch()
+                # print(self.Num_batch,batch_index)
                 # Training
                 self.train(minibatch, w_batch, batch_index)
 
@@ -661,6 +561,8 @@ class A2C:
                               randposition[1][0], randposition[1][1]])
                 env_info = env.get_env()
                 self.observation_stack, self.observation_set, self.state_stack, self.state_set = self.input_initialization(env_info)
+
+
 
 
 if __name__ == '__main__':
