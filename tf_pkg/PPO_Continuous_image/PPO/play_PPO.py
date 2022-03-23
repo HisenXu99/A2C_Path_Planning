@@ -1,3 +1,4 @@
+# -*- coding: UTF-8 -*-
 import tensorflow as tf
 import random
 import numpy as np
@@ -6,19 +7,20 @@ import datetime
 import time
 import cv2
 import os
+import sys
 import math
-from PPO import PPO
+from PPO_Continuous_openai import PPO
 from gazebo_env_D3QN_PER_image_add_sensor_empty_world_30m import envmodel
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'  # 默认显卡0
 
 env = envmodel()
 
-# # 动作指令集---> v,w
-# action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
-#                3: [1.0, 0.5], 4: [1.0, 1.0], 5: [0.5, -1.0],
-#                6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
-#                9: [0.0, 0.0], 10: [0.0, 1.0]}
+# 动作指令集---> v,w
+action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
+               3: [1.0, 0.5], 4: [1.0, 1.0], 5: [0.5, -1.0],
+               6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
+               9: [0.0, 0.0], 10: [0.0, 1.0]}
 
 
 #TODO：改变学习率，从batch中抽几帧，改变sleep时间，改连续变为离散
@@ -31,14 +33,14 @@ class play:
         
         self.date_time = str(datetime.date.today())
 
-        os.makedirs('saved_networks/' +'10_D3QN_PER_image_add_sensor_empty_world_30m' + '_' + self.date_time)
+        os.makedirs('saved_networks/' +'PPO_image_justmu' + '_' + self.date_time)
 
-        self.loadpath= '/home/hisen/Path_Planning_A2C/saved_networks/10_D3QN_PER_image_add_sensor_empty_world_30m_2022-03-15-3'
+        self.loadpath= '/home/hisen/Path_Planning_A2C/saved_networks/PPO_image_justmu_2022-03-22_2'
 
         # Initial parameters
         # ------------------------------
-        self.Num_start_training = 200
-        self.Num_training = 300000
+        self.Num_start_training = 30
+        self.Num_training = 200000
         # ------------------------------
         self.Num_test = 0
         # self.Lr_A = 0.0001
@@ -72,7 +74,7 @@ class play:
         self.d = 15.0
 
         # Define the step for updating the environment
-        self.MAXSTEPS = 300
+        self.MAXSTEPS = 600
         # ------------------------------
         self.MAXEPISODES = 5000
         # ------------------------------
@@ -147,6 +149,16 @@ class play:
         elif step <= self.Num_start_training + self.Num_training:
             # Training
             progress = 'Training'
+            if step<= self.Num_start_training + self.Num_training/4:
+                self.Epsilon=0.7
+            elif step<= self.Num_start_training + self.Num_training/2:
+                self.Epsilon=0.5
+            elif step<= self.Num_start_training + self.Num_training/4*3:
+                self.Epsilon=0.25
+            else:
+                self.Epsilon=0.1
+
+
 
             # # Decrease the epsilon value
             # if self.Epsilon > self.Final_epsilon:
@@ -173,21 +185,21 @@ class play:
             a1 = random.uniform(-1, 1) 
             action=[a0,a1]
         elif progress == "Training":
-            # if random.random() < Epsilon:
-            #     # action = np.zeros([self.Num_action])
-            #     # action[random.randint(0, self.Num_action - 1)] = 1
-            #     a0 = random.uniform(0, 1) 
-            #     a1 = random.uniform(-1, 1) 
-            #     action=[a0,a1]
-            # else:
-            action=self.PPO.choose_action([observation_stack],[state_stack])
+            if random.random() < self.Epsilon:
+                # action = np.zeros([self.Num_action])
+                # action[random.randint(0, self.Num_action - 1)] = 1
+                a0 = random.uniform(0, 1) 
+                a1 = random.uniform(-1, 1) 
+                action=[a0,a1]
+            else:
+                action=self.PPO.choose_action([observation_stack])
         else:
             # 动作是具有最大Q值的动作
             # action_actor = self.output_actor.eval(
             #     feed_dict={self.x_image: [observation_stack], self.x_sensor: [state_stack]})
             # p = action_actor.ravel()
             # action[np.argmax(p)] = 1
-            action=self.PPO.choose_action([observation_stack],[state_stack])
+            action=self.PPO.choose_action([observation_stack])
         return action
 
     def Batch(self, observation, state, action, reward):
@@ -249,7 +261,11 @@ class play:
                         discounted_r.append(v_s_)
                     discounted_r.reverse()
                     discounted_r=np.array(discounted_r)[:, np.newaxis]
+                    # try:
                     self.PPO.train(buffer_observation,buffer_state, discounted_r, buffer_a,self.step-self.Num_start_training)
+                    # except:
+                    #     print(self.PPO.out,self.PPO.Critic_loss)
+                        # sys.exit()
                     buffer_observation,buffer_state, buffer_a, buffer_r = [], [], [],[]
 
             # If progress is finished -> close!
@@ -272,6 +288,9 @@ class play:
                 step_for_newenv = 0
                 # Print informations
                 print('step:'+str(self.step)+'/'+'episode:'+str(self.episode)+'/'+'progress:' +self.progress+'/'+'/'+'score:' + str(self.score))
+                if str(self.score)=="nan":
+                    sys.exit(0)
+
 
                 if self.progress == 'Training':
                     reward_list.append(self.score)

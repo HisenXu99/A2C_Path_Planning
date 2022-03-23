@@ -14,26 +14,18 @@ os.environ["CUDA_VISIBLE_DEVICES"] = '0'  # 默认显卡0
 
 env = envmodel()
 
-# # 动作指令集---> v,w
-# action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
-#                3: [1.0, 0.5], 4: [1.0, 1.0], 5: [0.5, -1.0],
-#                6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
-#                9: [0.0, 0.0], 10: [0.0, 1.0]}
+# 动作指令集---> v,w
+action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
+               3: [1.0, 0.5], 4: [1.0, 1.0], 5: [0.5, -1.0],
+               6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
+               9: [0.0, 0.0], 10: [0.0, 1.0]}
 
-
-#TODO：改变学习率，从batch中抽几帧，改变sleep时间，改连续变为离散
 
 class play:
     def __init__(self):
         # Get parameters
         self.progress = ''
-        # self.Num_action = len(action_dict)
-        
-        self.date_time = str(datetime.date.today())
-
-        os.makedirs('saved_networks/' +'10_D3QN_PER_image_add_sensor_empty_world_30m' + '_' + self.date_time)
-
-        self.loadpath= '/home/hisen/Path_Planning_A2C/saved_networks/10_D3QN_PER_image_add_sensor_empty_world_30m_2022-03-15-3'
+        self.Num_action = len(action_dict)
 
         # Initial parameters
         # ------------------------------
@@ -41,15 +33,15 @@ class play:
         self.Num_training = 300000
         # ------------------------------
         self.Num_test = 0
-        # self.Lr_A = 0.0001
-        # self.Lr_C = 0.0002
-        # self.Gamma = 0.99
+        self.Lr_A = 0.0001
+        self.Lr_C = 0.0002
+        self.Gamma = 0.99
         self.GAMMA = 0.9
-        # self.Final_epsilon = 0.1
+        self.Final_epsilon = 0.1
         # ------------------------------
-        # self.Epsilon = 0.5
+        self.Epsilon = 1.0
         # ------------------------------
-       
+        self.load_path = '/home/hisen/DRL_Path_Planning-master/saved_networks/10_D3QN_PER_image_add_sensor_empty_world_30m_'
         self.step = 1
         self.score = 0
         self.episode = 0
@@ -74,16 +66,16 @@ class play:
         # Define the step for updating the environment
         self.MAXSTEPS = 300
         # ------------------------------
-        self.MAXEPISODES = 5000
+        self.MAXEPISODES = 500
         # ------------------------------
 
         # Parameter for LSTM
         self.Num_dataSize = 364  # 360 sensor size + 4 self state size
 
-        self.Num_batch = 16
+        self.Num_batch = 8
 
         # sess, self.saver = self.init_sess()
-        self.PPO=PPO(self.loadpath)
+        self.PPO=PPO()
 
         pass
 
@@ -138,33 +130,33 @@ class play:
         return observation_stack, observation_set, state_stack, state_set
 
 
-    def get_progress(self, step):
+    def get_progress(self, step, Epsilon):
         if step <= self.Num_start_training:
             # Obsersvation
             progress = 'Observing'
-            # Epsilon =self.Epsilon
+            Epsilon = 1
 
         elif step <= self.Num_start_training + self.Num_training:
             # Training
             progress = 'Training'
 
-            # # Decrease the epsilon value
-            # if self.Epsilon > self.Final_epsilon:
-            #     Epsilon -= 1.0/self.Num_training
+            # Decrease the epsilon value
+            if self.Epsilon > self.Final_epsilon:
+                Epsilon -= 1.0/self.Num_training
 
         elif step < self.Num_start_training + self.Num_training + self.Num_test:
             # Testing
             progress = 'Testing'
-            # Epsilon = 0
+            Epsilon = 0
 
         else:
             # Finished
             progress = 'Finished'
-            # Epsilon = 0
+            Epsilon = 0
 
-        return progress
+        return progress, Epsilon
 
-    def select_action(self, progress, observation_stack, state_stack):
+    def select_action(self, progress, observation_stack, state_stack, Epsilon):
         if progress == "Observing":
             # 观察的情况下，随机选择一个action
             # action = np.zeros([self.Num_action])
@@ -180,7 +172,7 @@ class play:
             #     a1 = random.uniform(-1, 1) 
             #     action=[a0,a1]
             # else:
-            action=self.PPO.choose_action([observation_stack],[state_stack])
+                action=self.PPO.choose_action([observation_stack],[state_stack])
         else:
             # 动作是具有最大Q值的动作
             # action_actor = self.output_actor.eval(
@@ -217,11 +209,11 @@ class play:
         while True:
 
             # Get Progress, train mode 获取当前的进度和train_mode的值
-            self.progress = self.get_progress(self.step)
+            self.progress, self.Epsilon = self.get_progress(self.step, self.Epsilon)
 
             # Select Actions 根据进度选取动作
-            action = self.select_action(self.progress, observation_stack, state_stack)
-            # print(action)
+            action = self.select_action(self.progress, observation_stack, state_stack, self.Epsilon)
+            print(action)
             env.step(action)
             env_info = env.get_env()
 
@@ -240,7 +232,6 @@ class play:
                 buffer_a.append(action)
                 # buffer_r.append((reward+8)/8)    # normalize reward, find to be useful
                 buffer_r.append(reward)    # normalize reward, find to be useful
-                # print(buffer_a)
                 if (step_for_newenv+1)%self.Num_batch==0 or terminal == True:
                     v_s_ = self.PPO.get_v([next_observation_stack],[next_state_stack])
                     discounted_r = []
@@ -271,7 +262,7 @@ class play:
                 self.PPO.save_model()
                 step_for_newenv = 0
                 # Print informations
-                print('step:'+str(self.step)+'/'+'episode:'+str(self.episode)+'/'+'progress:' +self.progress+'/'+'/'+'score:' + str(self.score))
+                print('step:'+str(self.step)+'/'+'episode:'+str(self.episode)+'/'+'progress:' +self.progress+'/'+'epsilon:'+str(self.Epsilon)+'/'+'score:' + str(self.score))
 
                 if self.progress == 'Training':
                     reward_list.append(self.score)

@@ -147,7 +147,7 @@ class A2C:
                 w_conv3 = self.weight_variable(self.third_conv)  # w_conv3 = ([3,3,64,64])
                 b_conv3 = self.bias_variable([self.third_conv[3]])  # b_conv3 = ([64])
 
-                h_conv1 = tf.nn.relu(self.conv2d(self.x_normalize, w_conv1, 4) + b_conv1)
+                h_conv1 = tf.nn.relu5(self.conv2d(self.x_normalize, w_conv1, 4) + b_conv1)
                 h_conv2 = tf.nn.relu(self.conv2d(h_conv1, w_conv2, 2) + b_conv2)
                 h_conv3 = tf.nn.relu(self.conv2d(h_conv2, w_conv3, 1) + b_conv3)
                 h_pool3_flat = tf.reshape(h_conv3, [-1, 10 * 10 * 64])  # 将tensor打平到vector中

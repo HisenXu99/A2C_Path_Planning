@@ -7,18 +7,18 @@ import time
 import cv2
 import os
 import math
-from PPO import PPO
+from PPO_Discrete import PPO
 from gazebo_env_D3QN_PER_image_add_sensor_empty_world_30m import envmodel
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'  # 默认显卡0
 
 env = envmodel()
 
-# # 动作指令集---> v,w
-# action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
-#                3: [1.0, 0.5], 4: [1.0, 1.0], 5: [0.5, -1.0],
-#                6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
-#                9: [0.0, 0.0], 10: [0.0, 1.0]}
+# 动作指令集---> v,w
+action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
+               3: [1.0, 0.5], 4: [1.0, 1.0], 5: [0.5, -1.0],
+               6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
+               9: [0.0, 0.0], 10: [0.0, 1.0]}
 
 
 #TODO：改变学习率，从batch中抽几帧，改变sleep时间，改连续变为离散

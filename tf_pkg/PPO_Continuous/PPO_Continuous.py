@@ -132,16 +132,14 @@ class PPO:
                     self.sample_op = tf.squeeze(pi.sample(1),axis=0)   # pi.sample(1) 采样一次获得[1,2]，tf.squeeze()从张量形状中移除大小为1的维度. 最终为[2]
                 with tf.variable_scope('update_oldpi'):
                     self.update_oldpi_op = [oldp.assign(p) for p,oldp in zip(pi_params,oldpi_params)]
+                    # self.update_oldpi_op=oldpi.set_weights(pi.get_weights())
 
                 self.tfa = tf.placeholder(tf.float32,[None,A_DIM],'action')
                 self.tfadv = tf.placeholder(tf.float32,[None,1],'advantage')
                 with tf.variable_scope('loss'):
                     with tf.variable_scope('surrogate'):
-                        self.ratio = pi.prob(self.tfa)/oldpi.prob(self.tfa)
-                        self.m=pi.prob(self.tfa)
-                        self.n=oldpi.prob(self.tfa)
-
-                        surr = self.ratio * self.tfadv
+                        ratio = pi.prob(self.tfa)/oldpi.prob(self.tfa)
+                        surr = ratio * self.tfadv
 
                     if METHOD['name'] == 'kl_pen':
                         self.tflam = tf.placeholder(tf.float32,None,'lambda')
@@ -151,7 +149,7 @@ class PPO:
 
                     else:
                         self.Actor_loss = -tf.reduce_mean(tf.minimum(surr,
-                                                                tf.clip_by_value(self.ratio,1.-METHOD['epsilon'],1.+METHOD['epsilon'])*self.tfadv)
+                                                                tf.clip_by_value(ratio,1.-METHOD['epsilon'],1.+METHOD['epsilon'])*self.tfadv)
                                                 )
                     with tf.variable_scope('atrain'):
                         self.Actor_train_op = tf.train.AdamOptimizer(A_LR).minimize(self.Actor_loss)
@@ -193,12 +191,12 @@ class PPO:
     def _build_anet(self,name,trainable,input):
         with tf.variable_scope(name):
             Actor_output1 = tf.layers.dense(input,self.first_dense[1],tf.nn.relu,trainable=trainable)
-            Actor_mu = tf.layers.dense(Actor_output1,A_DIM,tf.nn.tanh,trainable=trainable)
-            Actor_mu_=tf.concat([tf.reshape((Actor_mu[:,0]+1)/2,[-1,1]),tf.reshape(Actor_mu[:,1],[-1,1])], 1)                   #把第一列转化的[0,1],再合并到一起
-            Actor_sigma = tf.layers.dense(Actor_output1,A_DIM,tf.nn.softplus,trainable=trainable)
-            norm_dist = tf.distributions.Normal(loc=Actor_mu_,scale=Actor_sigma ) # 一个正态分布
-        params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=name)
-        return norm_dist,params
+            Actor_output2 = tf.layers.dense(Actor_output1,11,tf.nn.softmax,trainable=trainable)
+        #     # Actor_mu_=tf.concat([tf.reshape((Actor_mu[:,0]+1)/2,[-1,1]),tf.reshape(Actor_mu[:,1],[-1,1])], 1)                   #把第一列转化的[0,1],再合并到一起
+        #     # Actor_sigma = tf.layers.dense(Actor_output1,A_DIM,tf.nn.softplus,trainable=trainable)
+        #     # norm_dist = tf.distributions.Normal(loc=Actor_mu_,scale=Actor_sigma ) # 一个正态分布
+        params = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,scope=name)   #收集name空间下的所有参数
+        return Actor_output2,params
 
 
     def choose_action(self,observation_stack,state_stack):
@@ -228,17 +226,28 @@ class PPO:
                     METHOD['lam'] *= 2
                 METHOD['lam'] = np.clip(METHOD['lam'], 1e-4, 10)  # sometimes explode, this clipping is my solution
 
-        else:   # clipping method, find this is better (OpenAI's paper)
-            for i in range(A_UPDATE_STEPS):
-                _,m,n=self.sess.run([self.Actor_train_op,self.m,self.n], {self.x_image:observation_stack,self.x_sensor:state_stack, self.tfa: a, self.tfadv: adv})
-                print(i,"m",m[0,0])
-                print(i,"n",n[0,0])
+                
 
+        # else:   # clipping method, find this is better (OpenAI's paper)
+        #     for _ in range(A_UPDATE_STEPS):
+        #         _,merged=self.sess.run([self.Actor_train_op,self.merged], {self.x_image:observation_stack,self.x_sensor:state_stack, self.tfa: a, self.tfadv: adv})
+        #     # [self.sess.run(self.Actor_train_op, {self.x_image:observation_stack,self.x_sensor:state_stack, self.tfa: a, self.tfadv: adv}) for _ in range(A_UPDATE_STEPS)]
+
+        # # update critic
+        # [self.sess.run([self.Critic_train_op], {self.x_image:observation_stack,self.x_sensor:state_stack,self.tfdc_r: r}) for _ in range(C_UPDATE_STEPS)]
+        # # for _ in range(C_UPDATE_STEPS):
+        # #     _,merged=self.sess.run([self.Critic_train_op,self.merged], {self.x_image:observation_stack,self.x_sensor:state_stack,self.tfdc_r: r})
+        # self.writer.add_summary(merged,train_step) #将日志数据写入文件
+        # pass
+        else:   # clipping method, find this is better (OpenAI's paper)
+            [self.sess.run(self.Actor_train_op, {self.x_image:observation_stack,self.x_sensor:state_stack, self.tfa: a, self.tfadv: adv}) for _ in range(A_UPDATE_STEPS)]
+
+        # update critic
+        #[_,merged=self.sess.run([self.Critic_train_op,self.merge], {self.x_image:observation_stack,self.x_sensor:state_stack,self.tfdc_r: r}) for _ in range(C_UPDATE_STEPS)]
         for _ in range(C_UPDATE_STEPS):
             _,merged=self.sess.run([self.Critic_train_op,self.merged], {self.x_image:observation_stack,self.x_sensor:state_stack,self.tfdc_r: r})
-        self.writer.add_summary(merged,train_step) #将日志数据写入文件        
+        self.writer.add_summary(merged,train_step) #将日志数据写入文件
         pass
-
 
     def get_v(self,observation_stack,state_stack):
         # if observation_stack.ndim < 2:s = s[np.newaxis,:]

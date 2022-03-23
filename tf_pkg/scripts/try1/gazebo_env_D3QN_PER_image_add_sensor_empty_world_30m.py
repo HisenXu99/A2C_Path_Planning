@@ -1,108 +1,40 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-########################################################################
-####          Copyright 2020 GuYueHome (www.guyuehome.com).          ###
-########################################################################
+"""
+Author: Wangcai
+Date: 06/2019
+"""
 
-# 该例程将订阅/person_info话题，自定义消息类型learning_topic::Person
-
-import re
-# from urllib import response
 import rospy
-from nav_msgs.msg._Odometry import Odometry
-from gazebo_msgs.srv._SpawnModel import SpawnModelRequest
-from gazebo_msgs.srv._SetModelState import SetModelState
-from gazebo_msgs.msg import ModelState
+from std_msgs.msg import String
 from gazebo_msgs.msg import ModelStates
+from gazebo_msgs.msg import ModelState
 from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Pose
+from gazebo_msgs.srv import SetModelState
+from std_srvs.srv import Empty
+from nav_msgs.msg import Odometry
 from sensor_msgs.msg import Image
+from sensor_msgs.msg import LaserScan
 
-
-import cv2
-from cv_bridge import CvBridge, CvBridgeError
-import time
+import matplotlib.pyplot as plt
+import os
+import shutil
 import math
 import numpy as np
-
-# flag=1
-
-# def positionInfoCallback(msg):
-    
-#     # rospy.loginfo("Subcribe Person Info: x:%s  age:%d  sex:%d", 
-# 	# 		 msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.position.z)
-#     print("Subcribe Position Info: x:%s  y:%s  o:%s"%
-# 			 (msg.pose.pose.position.x, msg.pose.pose.position.y, msg.pose.pose.orientation.z))
-#     print("Subcribe Velocity Info: x:%s  y:%s  w:%s "%
-# 			 (msg.twist.twist.linear.x, msg.twist.twist.linear.y,msg.twist.twist.angular.z))
-#     flag=1
-
-# def person_subscriber():
-# 	# ROS节点初始化
-#     rospy.init_node('person_subscriber', anonymous=True)
-
-# 	# 创建一个Subscriber，订阅名为/person_info的topic，注册回调函数personInfoCallback
-#     rospy.Subscriber("/odom", Odometry, positionInfoCallback)
-    
-
-#     if (flag==1):
-#         # 循环等待回调函数
-#         rospy.spin()
-#     else:
-#         rospy.wait_for_service('/gazebo/set_model_state')
-#         reset  = rospy.ServiceProxy('/gazebo/set_model_state', SetModelState)
-#         state = ModelState()
-#         for i in range(len(self.gazebo_model_states.name)):
-#             if self.gazebo_model_states.name[i] == "point_start":
-#                 state.reference_frame = 'world'
-#                 state.pose.position.z = 0.0
-#                 state.model_name = self.gazebo_model_states.name[i]
-#                 state.pose.position.x = self.sp[0]
-#                 state.pose.position.y = self.sp[1]
-#                 val(state)
-#             if self.gazebo_model_states.name[i] == "point_goal":
-#                 state.reference_frame = 'world'
-#                 state.pose.position.z = 0.0
-#                 state.model_name = self.gazebo_model_states.name[i]
-#                 state.pose.position.x = self.gp[0]
-#                 state.pose.position.y = self.gp[1]
-#                 val(state)
-#             if self.gazebo_model_states.name[i] == self.agentrobot:
-#                 state.reference_frame = 'world'
-#                 state.pose.position.z = 0.0
-#                 state.model_name = self.gazebo_model_states.name[i]
-#                 rpy = [0.0, 0.0, randangle]
-#                 q = self.quaternion_from_euler(rpy[0], rpy[1], rpy[2])
-#                 state.pose.orientation.x = q[0]
-#                 state.pose.orientation.y = q[1]
-#                 state.pose.orientation.z = q[2]
-#                 state.pose.orientation.w = q[3]
-#                 state.pose.position.x = self.sp[0]
-#                 state.pose.position.y = self.sp[1]
-#                 val(state)
-#                 # 到目标点的距离
-#                 self.d = math.sqrt((state.pose.position.x - self.gp[0])**2 + (state.pose.position.y - self.gp[1])**2)
-#         try:
-#             reset = rospy.ServiceProxy('/gazebo/reset_simulation', Spawn)
-
-#             # 请求服务调用，输入请求数据
-#             response1 = reset()
-
-#             model_add=rospy.ServiceProxy('/gazebo/spawn_urdf_model',SpawnModelRequest)
-#             response2 = model_add()
-
-            
-#         except rospy.ServiceException:
-#             print ("Service call failed: %s"%"e")
-
+import time
+import random
+import tensorflow as tf
+import datetime
+import cv2
+from cv_bridge import CvBridge, CvBridgeError
 
 MAXENVSIZE = 30.0  # 边长为30的正方形作为环境的大小
 MAXLASERDIS = 10.0  # 雷达最大的探测距离
 Image_matrix = []
 
-
 class envmodel():
-    
     def __init__(self):
         rospy.init_node('control_node', anonymous=True)
         '''
@@ -120,7 +52,7 @@ class envmodel():
         self.img_size = 80
 
         # 障碍数量
-        self.num_obs = 0
+        self.num_obs = 10
 
         self.dis = 1.0  # 位置精度-->判断是否到达目标的距离
 
@@ -139,13 +71,13 @@ class envmodel():
         
         # 接收agent robot的前视bumblebee相机消息
         self.subimage = rospy.Subscriber('/' + self.agentrobot +'/front/left/image_raw', Image, self.image_callback)
-        # # 接收agent robot的激光雷达信息
-        # self.subLaser = rospy.Subscriber('/' + self.agentrobot +'/front/scan', LaserScan, self.laser_states_callback)
+        # 接收agent robot的激光雷达信息
+        self.subLaser = rospy.Subscriber('/' + self.agentrobot +'/front/scan', LaserScan, self.laser_states_callback)
         # 发布控制指令给agent robot
         self.pub = rospy.Publisher('/' + self.agentrobot + '/jackal_velocity_controller/cmd_vel', Twist, queue_size=10)
         
         time.sleep(1.0)
-
+        
     def resetval(self):
         self.robotstate = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]  # x,y,v,w,yaw,vx,vy
         self.d          = 0.0                                  # 到目标的距离
@@ -156,13 +88,13 @@ class envmodel():
         self.cmd        = [0.0, 0.0]                           # agent robot的控制指令
         self.done_list  = False                                # episode是否结束的标志
 
-    # def sign(self, x):
-    #     if x > 0:
-    #         return 1
-    #     elif x < 0:
-    #         return -1
-    #     else:
-    #         return 0
+    def sign(self, x):
+        if x > 0:
+            return 1
+        elif x < 0:
+            return -1
+        else:
+            return 0
 
     def gazebo_states_callback(self, data):
         self.gazebo_model_states = data
@@ -180,15 +112,13 @@ class envmodel():
                 self.robotstate[4] = rpy[2]
                 self.robotstate[5] = data.twist[i].linear.x
                 self.robotstate[6] = data.twist[i].linear.y
-
+    
     def image_callback(self, data):
         try:
             self.image_matrix_callback = self.bridge.imgmsg_to_cv2(data, desired_encoding="passthrough")
-            # cv2.imshow("frame" , self.image_matrix_callback)
-            # cv2.waitKey(3)
         except CvBridgeError as e:
             print(e)
-
+    
     def laser_states_callback(self, data):
         self.laser = data
 
@@ -199,7 +129,7 @@ class envmodel():
         q[1] = math.cos(r / 2) * math.sin(p / 2) * math.cos(y / 2) + math.sin(r / 2) * math.cos(p / 2) * math.sin(y / 2)
         q[2] = math.cos(r / 2) * math.cos(p / 2) * math.sin(y / 2) - math.sin(r / 2) * math.sin(p / 2) * math.cos(y / 2)
         return q
-
+    
     def euler_from_quaternion(self, x, y, z, w):
         euler = [0, 0, 0]
         Epsilon = 0.0009765625
@@ -219,7 +149,8 @@ class envmodel():
             euler[2] = math.atan2(2 * (x * y + w * z), w * w + x * x - y * y - z * z)
         
         return euler
-
+    
+    # 获取agent robot的回报值
     def getreward(self):
         
         reward = 0
@@ -232,13 +163,13 @@ class envmodel():
             reward = reward + 0.1*(self.d_last - self.d)
         
         # 速度发生变化就会有负的奖励
-        reward = reward - 0.01*(0.2*abs(self.w_last - self.cmd[1]) +0.5* abs(self.v_last - self.cmd[0])) 
+        reward = reward - 0.01*(abs(self.w_last - self.cmd[1]) + abs(self.v_last - self.cmd[0])) 
         
         # 到达目标点有正的奖励
         # if self.d < self.dis and not self.done_list:
         if self.d < self.dis:
-            reward = reward + 3
-            print("Get 3 reward------goal point!!!!!!")
+            reward = reward + 20
+            print("Get 20 reward------goal point!!!!!!")
             # self.done_list = True
         '''
         # 碰撞障碍物有负的奖励
@@ -248,7 +179,6 @@ class envmodel():
                 self.done_list = True
         '''
         return reward
-
 
     # 重置environment
     def reset_env(self, start=[0.0, 0.0], goal=[10.0, 10.0]):
@@ -317,7 +247,6 @@ class envmodel():
                 state.pose.orientation.w = q[3]
                 state.pose.position.x = self.sp[0] + randomposition[0][0]
                 state.pose.position.y = self.sp[1] + randomposition[0][1]
-                #发送服务
                 val(state)
                 # 到目标点的距离
                 self.d = math.sqrt((state.pose.position.x - self.gp[0])**2 + (state.pose.position.y - self.gp[1])**2)
@@ -335,6 +264,60 @@ class envmodel():
         self.done_list = False  # episode结束的标志
         print("The environment has been reset!")     
         time.sleep(2.0)
+    
+    # # 随机初始化障碍的位置
+    # def random_square(self, a):
+
+    #     obstacle_robot_position = []
+    #     x1, y1 = -a, -a
+    #     x2, y2 = a, -a
+    #     x3, y3 = -a, a
+    #     x4, y4 = a, a
+
+    #     '''
+    #     plt.figure(figsize=(8, 8))
+    #     theta = np.arange(0, 1, 0.001)
+    #     x = theta * x1 + (1 - theta) * x2
+    #     y = theta * y1 + (1 - theta) * y2
+    #     plt.plot(x, y, 'g--', linewidth=2)    
+    #     x = theta * x1 + (1 - theta) * x3
+    #     y = theta * y1 + (1 - theta) * y3
+    #     plt.plot(x, y, 'g--', linewidth=2)
+    #     x = theta * x2 + (1 - theta) * x4
+    #     y = theta * y2 + (1 - theta) * y4
+    #     plt.plot(x, y, 'g--', linewidth=2)    
+    #     x = theta * x3 + (1 - theta) * x4
+    #     y = theta * y3 + (1 - theta) * y4
+    #     plt.plot(x, y, 'g--', linewidth=2)
+    #     '''
+    #     # 初始化
+    #     for i in range(self.num_obs):
+    #         obstacle_robot_position.append([0.0, 0.0]) 
+        
+    #     random_list = np.random.random_sample(self.num_obs)
+    #     #print("random_list={}".format(random_list))
+    #     for i in range(self.num_obs):
+    #         if random_list[i] >= 0.5:
+    #             rnd11 = np.random.random()
+    #             rnd21 = np.random.random()
+    #             rnd21 = np.sqrt(rnd21)
+    #             obstacle_robot_position[i][0]=rnd21 * (rnd11 * x1 + (1 - rnd11) * x2) + (1 - rnd21) * x3
+    #             obstacle_robot_position[i][1]=rnd21 * (rnd11 * y1 + (1 - rnd11) * y2) + (1 - rnd21) * y3
+    #             # plt.plot(obstacle_robot_position[i][0], obstacle_robot_position[i][1], 'ro')
+    #         else:
+    #             rnd12 = np.random.random()
+    #             rnd22 = np.random.random()
+    #             rnd22 = np.sqrt(rnd22)
+    #             obstacle_robot_position[i][0]=rnd22 * (rnd12 * x3 + (1 - rnd12) * x4) + (1 - rnd22) * x2
+    #             obstacle_robot_position[i][1]=rnd22 * (rnd12 * y3 + (1 - rnd12) * y4) + (1 - rnd22) * y2
+    #             # plt.plot(obstacle_robot_position[i][0], obstacle_robot_position[i][1], 'ro')
+    #     '''
+    #     name_map = 'map' + str(self.count_map)
+    #     plt.savefig(os.path.join(self.foldername_map, name_map))
+    #     self.count_map = self.count_map + 1
+    #     plt.close()
+    #     '''
+    #     return obstacle_robot_position
 
     def get_env(self):
         env_info=[]
@@ -364,33 +347,31 @@ class envmodel():
         thet = math.atan2(yp, xp)
         selfstate[3] = thet/math.pi
 
-        # #######################################input1-->雷达信息#########################################3333
-        # laser = []
-        # temp = []
+        # input1-->雷达信息
+        laser = []
+        temp = []
         sensor_info = []
-        # for j in range(len(self.laser.ranges)):
-        #     tempval = self.laser.ranges[j]
-        #     # 归一化处理
-        #     if tempval > MAXLASERDIS:
-        #         tempval = MAXLASERDIS
-        #     temp.append(tempval/MAXLASERDIS)
-        # laser = temp
-        # # 将agent robot的input2和input1合并成为一个vector:[input2 input1]
+        for j in range(len(self.laser.ranges)):
+            tempval = self.laser.ranges[j]
+            # 归一化处理
+            if tempval > MAXLASERDIS:
+                tempval = MAXLASERDIS
+            temp.append(tempval/MAXLASERDIS)
+        laser = temp
+        # 将agent robot的input2和input1合并成为一个vector:[input2 input1]
 
         # env_info.append(laser)
         # env_info.append(selfstate)
-        # for i in range(len(laser)+len(selfstate)):
-        #     if i<len(laser):
-        #         sensor_info.append(laser[i])
-        #     else:
-        #         sensor_info.append(selfstate[i-len(laser)])
-        for i in range(len(selfstate)):
-                sensor_info.append(selfstate[i])
-
-        # input1-->state和雷达
+        for i in range(len(laser)+len(selfstate)):
+            if i<len(laser):
+                sensor_info.append(laser[i])
+            else:
+                sensor_info.append(selfstate[i-len(laser)])
+        
         env_info.append(sensor_info)
+        #print("The state is:{}".format(state))
 
-
+        # input1-->相机
         # shape of image_matrix [768,1024,3]
         self.image_matrix = np.uint8(self.image_matrix_callback)
         self.image_matrix = cv2.resize(self.image_matrix, (self.img_size, self.img_size))
@@ -405,7 +386,6 @@ class envmodel():
         # print("image matrix rows:{}".format(rows))
         # print("image matrix cols:{}".format(cols))
         # print("image matrix channels:{}".format(channels))
-        # input2-->相机
         env_info.append(self.image_matrix)
         # print("shape of image matrix={}".format(self.image_matrix.shape))
 
@@ -451,8 +431,4 @@ class envmodel():
         self.w_last = cmd[1]
 
 if __name__ == '__main__':
-    env=envmodel()
-    
-    env.reset_env(start=[5.0, 5.0], goal=[-5.0,-5.0])
-    del env
     pass

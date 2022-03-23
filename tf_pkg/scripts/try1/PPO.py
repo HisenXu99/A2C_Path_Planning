@@ -11,8 +11,8 @@ import os
 import math
 
 
-A_LR = 0.00004
-C_LR = 0.00008
+A_LR = 0.0001
+C_LR = 0.0002
 A_DIM =2
 A_UPDATE_STEPS = 10
 C_UPDATE_STEPS = 10
@@ -22,7 +22,7 @@ METHOD = [
 ][1]
 
 class PPO:
-    def __init__(self,loadpath):
+    def __init__(self):
          # parameters for skipping and stacking
         self.Num_skipFrame = 1
         self.Num_stackFrame = 4
@@ -48,7 +48,6 @@ class PPO:
         # date - hour - minute - second of training time
         self.date_time = str(datetime.date.today())
 
-        self.load_path = loadpath
 
         self.network()
         self.sess,self.saver,self.writer=self.init_sess()
@@ -122,7 +121,6 @@ class PPO:
                 self.advantage = self.tfdc_r - self.Critic_output2
                 self.Critic_loss = tf.reduce_mean(tf.square(self.advantage))
                 self.Critic_train_op = tf.train.AdamOptimizer(C_LR).minimize(self.Critic_loss)
-                closs = tf.summary.scalar("Critic_loss", self.Critic_loss)
 
             #Actor
             with tf.variable_scope('Actor'):
@@ -137,11 +135,8 @@ class PPO:
                 self.tfadv = tf.placeholder(tf.float32,[None,1],'advantage')
                 with tf.variable_scope('loss'):
                     with tf.variable_scope('surrogate'):
-                        self.ratio = pi.prob(self.tfa)/oldpi.prob(self.tfa)
-                        self.m=pi.prob(self.tfa)
-                        self.n=oldpi.prob(self.tfa)
-
-                        surr = self.ratio * self.tfadv
+                        ratio = pi.prob(self.tfa)/oldpi.prob(self.tfa)
+                        surr = ratio * self.tfadv
 
                     if METHOD['name'] == 'kl_pen':
                         self.tflam = tf.placeholder(tf.float32,None,'lambda')
@@ -151,12 +146,17 @@ class PPO:
 
                     else:
                         self.Actor_loss = -tf.reduce_mean(tf.minimum(surr,
-                                                                tf.clip_by_value(self.ratio,1.-METHOD['epsilon'],1.+METHOD['epsilon'])*self.tfadv)
+                                                                tf.clip_by_value(ratio,1.-METHOD['epsilon'],1.+METHOD['epsilon'])*self.tfadv)
                                                 )
                     with tf.variable_scope('atrain'):
                         self.Actor_train_op = tf.train.AdamOptimizer(A_LR).minimize(self.Actor_loss)
-                # aloss = tf.summary.scalar("Aritic_loss", self.Actor_loss)
-            self.merged = tf.summary.merge_all()
+
+
+
+                    closs = tf.summary.scalar("Critic_loss", self.Critic_loss)
+                    self.merged = tf.summary.merge_all()
+ 
+
         pass
 
     def init_sess(self):
@@ -166,26 +166,27 @@ class PPO:
 
         sess = tf.InteractiveSession(config=config)
         # ------------------------------
-
+        os.makedirs('saved_networks/' +
+                    '10_D3QN_PER_image_add_sensor_empty_world_30m' + '_' + self.date_time)
         # ------------------------------
         init = tf.global_variables_initializer()
         sess.run(init)
-        saver = tf.train.Saver()
+
 
         # Load the file if the saved file exists
 
-        check_save = input('Load Model? (1=yes/2=no): ')
+        # check_save = input('Load Model? (1=yes/2=no): ')
 
-        if check_save == 1:
-            # Restore variables from disk.
-            saver.restore(sess, self.load_path + "/model.ckpt")
-            print("Model restored.")
+        # if check_save == 1:
+        #     # Restore variables from disk.
+        #     saver.restore(sess, self.load_path + "/model.ckpt")
+        #     print("Model restored.")
 
-            check_train = input('Inference or Training? (1=Inference / 2=Training): ')
-            if check_train == 1:
-                self.Num_start_training = 0
-                self.Num_training = 0
-
+        #     check_train = input('Inference or Training? (1=Inference / 2=Training): ')
+        #     if check_train == 1:
+        #         self.Num_start_training = 0
+        #         self.Num_training = 0
+        saver = tf.train.Saver()
         writer=tf.summary.FileWriter("log_PPO/", tf.get_default_graph())
 
         return sess,saver,writer
@@ -229,16 +230,14 @@ class PPO:
                 METHOD['lam'] = np.clip(METHOD['lam'], 1e-4, 10)  # sometimes explode, this clipping is my solution
 
         else:   # clipping method, find this is better (OpenAI's paper)
-            for i in range(A_UPDATE_STEPS):
-                _,m,n=self.sess.run([self.Actor_train_op,self.m,self.n], {self.x_image:observation_stack,self.x_sensor:state_stack, self.tfa: a, self.tfadv: adv})
-                print(i,"m",m[0,0])
-                print(i,"n",n[0,0])
+            [self.sess.run(self.Actor_train_op, {self.x_image:observation_stack,self.x_sensor:state_stack, self.tfa: a, self.tfadv: adv}) for _ in range(A_UPDATE_STEPS)]
 
+        # update critic
+        #[_,merged=self.sess.run([self.Critic_train_op,self.merge], {self.x_image:observation_stack,self.x_sensor:state_stack,self.tfdc_r: r}) for _ in range(C_UPDATE_STEPS)]
         for _ in range(C_UPDATE_STEPS):
             _,merged=self.sess.run([self.Critic_train_op,self.merged], {self.x_image:observation_stack,self.x_sensor:state_stack,self.tfdc_r: r})
-        self.writer.add_summary(merged,train_step) #将日志数据写入文件        
+        self.writer.add_summary(merged,train_step) #将日志数据写入文件
         pass
-
 
     def get_v(self,observation_stack,state_stack):
         # if observation_stack.ndim < 2:s = s[np.newaxis,:]
