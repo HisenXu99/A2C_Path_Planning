@@ -9,7 +9,7 @@ import cv2
 import os
 import sys
 import math
-from PPO_Continuous_openai import PPO
+from PPO_Continous_image_CNN import PPO
 from gazebo_env_D3QN_PER_image_add_sensor_empty_world_30m import envmodel
 
 os.environ["CUDA_VISIBLE_DEVICES"] = '0'  # 默认显卡0
@@ -22,6 +22,11 @@ action_dict = {0: [1.0, -1.0], 1: [1.0, -0.5], 2: [1.0, 0.0],
                6: [0.5, 0.0], 7: [0.5, 1.0], 8: [0.0, -1.0],
                9: [0.0, 0.0], 10: [0.0, 1.0]}
 
+def constfn(val):
+    def f(_):
+        return val
+    return f
+
 
 #TODO：改变学习率，从batch中抽几帧，改变sleep时间，改连续变为离散
 
@@ -33,20 +38,21 @@ class play:
         
         self.date_time = str(datetime.date.today())
 
-        os.makedirs('saved_networks/' +'PPO_image_justmu' + '_' + self.date_time)
+        os.makedirs('saved_networks/' +'10_D3QN_PER_image_add_sensor_empty_world_30m' + '_' + self.date_time)
 
-        self.loadpath= '/home/hisen/Path_Planning_A2C/saved_networks/PPO_image_justmu_2022-03-22_2'
+        self.loadpath= '/home/hisen/Path_Planning_A2C/saved_networks/10_D3QN_PER_image_add_sensor_empty_world_30m_2022-03-17-13w'
 
         # Initial parameters
         # ------------------------------
         self.Num_start_training = 30
-        self.Num_training = 200000
+        self.Num_training = 300000
         # ------------------------------
         self.Num_test = 0
         # self.Lr_A = 0.0001
         # self.Lr_C = 0.0002
         # self.Gamma = 0.99
-        self.GAMMA = 0.9
+        self.GAMMA = 0.99
+        self.lam=0.95
         # self.Final_epsilon = 0.1
         # ------------------------------
         # self.Epsilon = 0.5
@@ -86,6 +92,13 @@ class play:
 
         # sess, self.saver = self.init_sess()
         self.PPO=PPO(self.loadpath)
+
+        self.lr=0.0003
+        self.cliprange=0.2
+
+        self.lr= constfn(self.lr)
+        self.cliprange = constfn(self.cliprange)
+
 
         pass
 
@@ -150,13 +163,11 @@ class play:
             # Training
             progress = 'Training'
             if step<= self.Num_start_training + self.Num_training/4:
-                self.Epsilon=0.7
-            elif step<= self.Num_start_training + self.Num_training/2:
                 self.Epsilon=0.5
-            elif step<= self.Num_start_training + self.Num_training/4*3:
-                self.Epsilon=0.25
+            elif step<= self.Num_start_training + self.Num_training/2:
+                self.Epsilon=0.35
             else:
-                self.Epsilon=0.1
+                self.Epsilon=0.2
 
 
 
@@ -185,22 +196,23 @@ class play:
             a1 = random.uniform(-1, 1) 
             action=[a0,a1]
         elif progress == "Training":
-            if random.random() < self.Epsilon:
-                # action = np.zeros([self.Num_action])
-                # action[random.randint(0, self.Num_action - 1)] = 1
-                a0 = random.uniform(0, 1) 
-                a1 = random.uniform(-1, 1) 
-                action=[a0,a1]
-            else:
-                action=self.PPO.choose_action([observation_stack],[state_stack])
+        #     if random.random() < self.Epsilon:
+        #         # action = np.zeros([self.Num_action])
+        #         # action[random.randint(0, self.Num_action - 1)] = 1
+        #         a0 = random.uniform(0, 1) 
+        #         a1 = random.uniform(-1, 1) 
+        #         action=[a0,a1]
+        #     else:
+            action=self.PPO.choose_action([observation_stack])
         else:
             # 动作是具有最大Q值的动作
             # action_actor = self.output_actor.eval(
             #     feed_dict={self.x_image: [observation_stack], self.x_sensor: [state_stack]})
             # p = action_actor.ravel()
             # action[np.argmax(p)] = 1
-            action=self.PPO.choose_action([observation_stack],[state_stack])
+            action=self.PPO.choose_action([observation_stack])
         return action
+
 
 
     def main(self):
@@ -220,7 +232,7 @@ class play:
         # env.info为4维，第1维为相机消息，第2维为agent robot的self state，第3维为terminal，第4维为reward
         observation_stack, self.observation_set, state_stack, self.state_set= self.input_initialization(env_info)
         step_for_newenv = 0
-        buffer_observation,buffer_state, buffer_a, buffer_r = [], [], [],[]
+        buffer_observation,buffer_state, buffer_a, buffer_r ,buffer_v= [], [], [],[],[]
 
         # Training & Testing
         while True:
@@ -249,21 +261,46 @@ class play:
                 buffer_a.append(action)
                 # buffer_r.append((reward+8)/8)    # normalize reward, find to be useful
                 buffer_r.append(reward)    # normalize reward, find to be useful
+                buffer_v.append(self.PPO.get_v([observation_stack],[state_stack]))
                 # print(buffer_a)
                 if (step_for_newenv+1)%self.Num_batch==0 or terminal == True:
-                    v_s_ = self.PPO.get_v([next_observation_stack],[next_state_stack])
-                    discounted_r = []
-                    for r in buffer_r[::-1]:   #buffer_r[::-1]返回倒序的原list
-                        v_s_ = r + self.GAMMA * v_s_
-                        discounted_r.append(v_s_)
-                    discounted_r.reverse()
-                    discounted_r=np.array(discounted_r)[:, np.newaxis]
+                    last_values= self.PPO.get_v([next_observation_stack],[state_stack])
+                    # discounted_r = []
+                    # for r in buffer_r[::-1]:   #buffer_r[::-1]返回倒序的原list
+                    #     v_s_ = r + self.GAMMA * v_s_
+                    #     discounted_r.append(v_s_)
+                    # discounted_r.reverse()
+                    # discounted_r=np.array(discounted_r)[:, np.newaxis]
+
+                    mb_returns = np.zeros_like(buffer_r)
+                    mb_advs = np.zeros_like(buffer_r)
+                    lastgaelam = 0
+                    nsteps=len(buffer_r)
+                    for t in reversed(range(nsteps)):
+                        if t == nsteps - 1:
+                            nextnonterminal = 1.0 - terminal
+                            nextvalues = last_values
+                        else:
+                            nextnonterminal = 1.0 
+                            nextvalues = buffer_v[t+1]
+                        delta = buffer_r[t] + self.GAMMA * nextvalues * nextnonterminal - buffer_v[t]
+                        mb_advs[t] = lastgaelam = delta + self.GAMMA * self.lam * nextnonterminal * lastgaelam
+                    mb_returns = mb_advs + buffer_v
+
                     # try:
-                    self.PPO.train(buffer_observation,buffer_state, discounted_r, buffer_a,self.step-self.Num_start_training)
+                    frac = 1.0 - (self.step-self.Num_start_training - 1.0) / self.Num_training
+                    frac=0.8
+                    
+                    # Calculate the cliprange
+                    cliprangenow = self.cliprange(frac)
+                    # Calculate the learning rate
+                    lrnow = self.lr(frac)
+
+                    self.PPO.train(buffer_observation,mb_returns, buffer_a,self.step-self.Num_start_training,lrnow,cliprangenow,buffer_v)
                     # except:
                     #     print(self.PPO.out,self.PPO.Critic_loss)
                         # sys.exit()
-                    buffer_observation,buffer_state, buffer_a, buffer_r = [], [], [],[]
+                    buffer_observation,buffer_state, buffer_a, buffer_r ,buffer_v= [], [], [],[],[]
 
             # If progress is finished -> close!
             if self.progress == 'Finished' or self.episode == self.MAXEPISODES:

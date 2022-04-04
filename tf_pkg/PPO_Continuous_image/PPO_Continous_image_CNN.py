@@ -125,11 +125,21 @@ class PPO:
         self.x_image = tf.placeholder(tf.float32, shape=[None, self.img_size, self.img_size, self.Num_stackFrame],name="image")
         x=self.x_normalize = (self.x_image - (255.0/2)) / (255.0/2)  # 归一化处理
         # x = ob / 255.0
+
         x = tf.nn.relu(self.conv2d(x, 32, "l1", [8, 8], [4, 4], pad="VALID"))
         x = tf.nn.relu(self.conv2d(x, 64, "l2", [4, 4], [2, 2], pad="VALID"))
         x = tf.nn.relu(self.conv2d(x, 64, "l3", [3, 3], [1, 1], pad="VALID"))
         x = self.flattenallbut0(x)
         x = tf.nn.relu(tf.layers.dense(x, 512, name='lin', kernel_initializer=self.normc_initializer(1.0)))
+
+        # with tf.variable_scope('LSTM'):
+        #     # LSTM cell
+        #     #TODO:看看LSTM的结构
+        #     cell = tf.contrib.rnn.BasicLSTMCell(num_units=self.Num_cellState)
+        #     rnn_out, rnn_state = tf.nn.static_rnn(inputs=self.x_unstack, cell=cell, dtype=tf.float32)
+        #     rnn_out = rnn_out[-1]
+
+        # h_concat = tf.concat([h_pool3_flat, rnn_out], axis=1)
 
         logits = tf.layers.dense(x, 4, name='logits', kernel_initializer=self.normc_initializer(0.01))
         self.pd = DiagGaussianPd(logits)

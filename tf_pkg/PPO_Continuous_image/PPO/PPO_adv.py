@@ -14,7 +14,7 @@ import math
 import sys
 
 
-A_LR = 0.00005
+A_LR = 0.0002
 A_DIM =2
 A_UPDATE_STEPS = 10
 METHOD = [
@@ -84,9 +84,9 @@ class PPO:
         self.x_image = tf.placeholder(tf.float32, shape=[None, self.img_size, self.img_size, self.Num_stackFrame],name="image")
         self.x_normalize = (self.x_image - (255.0/2)) / (255.0/2)  # 归一化处理
 
-        # Input------sensor
-        self.x_sensor = tf.placeholder(tf.float32, shape=[None, self.Num_stackFrame, self.Num_dataSize],name="state")
-        self.x_unstack = tf.unstack(self.x_sensor, axis=1)
+        # # Input------sensor
+        # self.x_sensor = tf.placeholder(tf.float32, shape=[None, self.Num_stackFrame, self.Num_dataSize],name="state")
+        # self.x_unstack = tf.unstack(self.x_sensor, axis=1)
 
         with tf.variable_scope('network'):
             # Convolution variables
@@ -115,7 +115,6 @@ class PPO:
                 rnn_out = rnn_out[-1]
 
             h_concat = tf.concat([h_pool3_flat, rnn_out], axis=1)
-            Critic_outpot1 = tf.layers.dense(h_concat,self.first_dense[1],tf.nn.relu)
 
             #Critic
             with tf.variable_scope('Critic'):
@@ -221,9 +220,9 @@ class PPO:
         return sess,saver,writer
 
 
-    def choose_action(self,observation_stack,state_stack):
+    def choose_action(self,observation_stack):
         # s = s[np.newaxis,:]
-        a = self.sess.run(self.sample_op,{self.x_image:observation_stack,self.x_sensor:state_stack,self.Actor_sigma:self.sigma})[0]
+        a = self.sess.run(self.sample_op,{self.x_image:observation_stack,self.Actor_sigma:self.sigma})[0]
         # print(a)
         a0=np.clip(a[0],0,1)
         a1=np.clip(a[1],-1,1)
@@ -232,8 +231,8 @@ class PPO:
 
     def train(self,observation_stack,state_stack,r,a,train_step):
         # self.sess.run(self.update_oldpi_op)
-        adv = self.sess.run(self.advantage,{self.x_image:observation_stack,self.x_sensor:state_stack, self.tfdc_r:r}) # 得到advantage value
-        oldpi_prob,mu=self.sess.run([self.ev_prob,self.Actor_mu_],{self.x_image:observation_stack,self.x_sensor:state_stack, self.tfa: a,self.Actor_sigma:self.sigma})
+        adv = self.sess.run(self.advantage,{self.x_image:observation_stack,self.tfdc_r:r}) # 得到advantage value
+        oldpi_prob,mu=self.sess.run([self.ev_prob,self.Actor_mu_],{self.x_image:observation_stack, self.tfa: a,self.Actor_sigma:self.sigma})
         # oldpi_prob=np.clip(oldpi_prob,1e-8,100000)
         if train_step<=50000:
             self.sigma=[[1.2,1.2]]
@@ -256,7 +255,7 @@ class PPO:
 
         else:   # clipping method, find this is better (OpenAI's paper)
             for i in range(A_UPDATE_STEPS):
-                _,merged,self.out=self.sess.run([self.train_op,self.merged,self.surr], {self.x_image:observation_stack,self.x_sensor:state_stack,self.tfa: a, self.tfadv: adv,self.oldpi_prob:oldpi_prob,self.tfdc_r: r,self.Actor_sigma:self.sigma})
+                _,merged,self.out=self.sess.run([self.train_op,self.merged,self.surr], {self.x_image:observation_stack,self.tfa: a, self.tfadv: adv,self.oldpi_prob:oldpi_prob,self.tfdc_r: r,self.Actor_sigma:self.sigma})
                 # print(i,"o",o[0,0])
                 # print(i,"m",m[0,0])
         with open('/home/hisen/Path_Planning_A2C/src/tf_pkg/PPO_Continuous_image/PPO_openai.txt','a') as f:             
@@ -279,7 +278,7 @@ class PPO:
 
     def get_v(self,observation_stack,state_stack):
         # if observation_stack.ndim < 2:s = s[np.newaxis,:]
-        return self.sess.run(self.Critic_output2,{self.x_image:observation_stack,self.x_sensor:state_stack})[0,0]
+        return self.sess.run(self.Critic_output2,{self.x_image:observation_stack})[0,0]
 
     def save_model(self):
         # ------------------------------
